@@ -20,9 +20,14 @@ export class VideoProcessingService {
   private ffprobePath: string;
 
   constructor() {
-    this.ffmpegPath = require('ffmpeg-static');
-    // ffprobe путања - обично поред ffmpeg
-    this.ffprobePath = this.ffmpegPath.replace('ffmpeg', 'ffprobe');
+    // Use system ffmpeg in production (Render has it), ffmpeg-static locally
+    if (process.env.NODE_ENV === 'production') {
+      this.ffmpegPath = 'ffmpeg';
+      this.ffprobePath = 'ffprobe';
+    } else {
+      this.ffmpegPath = require('ffmpeg-static');
+      this.ffprobePath = this.ffmpegPath.replace('ffmpeg', 'ffprobe');
+    }
   }
 
   /**

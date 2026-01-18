@@ -25,7 +25,12 @@ export class SpeechToTextService {
     if (config.openaiApiKey) {
       this.openai = new OpenAI({ apiKey: config.openaiApiKey });
     }
-    this.ffmpegPath = require('ffmpeg-static');
+    // Use system ffmpeg in production (Render has it), ffmpeg-static locally
+    if (process.env.NODE_ENV === 'production') {
+      this.ffmpegPath = 'ffmpeg';
+    } else {
+      this.ffmpegPath = require('ffmpeg-static');
+    }
   }
 
   /**

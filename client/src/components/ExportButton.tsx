@@ -32,7 +32,9 @@ const ExportButton: React.FC<ExportButtonProps> = ({ projectId, videoSettings })
       });
       
       if (response.success && response.data?.downloadUrl) {
-        window.open(`http://localhost:3001${response.data.downloadUrl}`, '_blank');
+        // Use relative URL in production
+        const baseUrl = process.env.NODE_ENV === 'production' ? '' : 'http://localhost:3001';
+        window.open(`${baseUrl}${response.data.downloadUrl}`, '_blank');
       }
     } catch (error) {
       console.error('Export error:', error);
