@@ -72,7 +72,6 @@ export class VideoProcessingService {
 
   /**
    * Calculate crop/scale parameters for aspect ratio
-   * Returns scale+crop or scale+pad filter depending on source dimensions
    */
   private getAspectRatioFilter(
     sourceWidth: number, 
@@ -88,69 +87,41 @@ export class VideoProcessingService {
     const targetRatioValue = ratios[targetRatio];
     const sourceRatioValue = sourceWidth / sourceHeight;
     
-    // For 9:16 vertical video, we want to:
-    // 1. If source is wider (16:9 or similar) - crop the sides
-    // 2. If source is already vertical - scale to fit
+    let cropW: number, cropH: number, cropX: number, cropY: number;
     
-    if (targetRatio === '9:16') {
-      // Calculate target dimensions maintaining 9:16 ratio
-      // We'll scale based on height and crop/pad width
-      let targetH = sourceHeight;
-      let targetW = Math.round(targetH * targetRatioValue);
-      
-      // Ensure even numbers
-      targetW = targetW - (targetW % 2);
-      targetH = targetH - (targetH % 2);
-      
-      if (sourceWidth >= targetW) {
-        // Source is wide enough - crop sides
-        const cropX = Math.round((sourceWidth - targetW) / 2);
-        return `crop=${targetW}:${targetH}:${cropX}:0`;
-      } else {
-        // Source is too narrow - scale to width and pad height, or just scale
-        return `scale=${targetW}:${targetH}:force_original_aspect_ratio=decrease,pad=${targetW}:${targetH}:(ow-iw)/2:(oh-ih)/2:black`;
-      }
-    } else if (targetRatio === '1:1') {
-      // For 1:1, use the smaller dimension
-      const size = Math.min(sourceWidth, sourceHeight);
-      const targetSize = size - (size % 2);
-      
-      if (sourceWidth > sourceHeight) {
-        // Landscape - crop sides
-        const cropX = Math.round((sourceWidth - targetSize) / 2);
-        return `crop=${targetSize}:${targetSize}:${cropX}:0`;
-      } else if (sourceHeight > sourceWidth) {
-        // Portrait - crop top/bottom
-        const cropY = Math.round((sourceHeight - targetSize) / 2);
-        return `crop=${targetSize}:${targetSize}:0:${cropY}`;
-      } else {
-        // Already square
-        return `scale=${targetSize}:${targetSize}`;
-      }
+    if (sourceRatioValue > targetRatioValue) {
+      // Source is wider - crop sides
+      cropH = sourceHeight;
+      cropW = Math.round(sourceHeight * targetRatioValue);
+      cropX = Math.round((sourceWidth - cropW) / 2);
+      cropY = 0;
     } else {
-      // 16:9 - standard horizontal
-      let cropW: number, cropH: number, cropX: number, cropY: number;
-      
-      if (sourceRatioValue > targetRatioValue) {
-        // Source is wider - crop sides
+      // Source is taller or equal - crop top/bottom
+      cropW = sourceWidth;
+      cropH = Math.round(sourceWidth / targetRatioValue);
+      // If cropH is larger than source, use source height and recalculate width
+      if (cropH > sourceHeight) {
         cropH = sourceHeight;
         cropW = Math.round(sourceHeight * targetRatioValue);
         cropX = Math.round((sourceWidth - cropW) / 2);
         cropY = 0;
       } else {
-        // Source is taller - crop top/bottom
-        cropW = sourceWidth;
-        cropH = Math.round(sourceWidth / targetRatioValue);
         cropX = 0;
         cropY = Math.round((sourceHeight - cropH) / 2);
       }
-      
-      // Ensure even numbers for codec compatibility
-      cropW = cropW - (cropW % 2);
-      cropH = cropH - (cropH % 2);
-      
-      return `crop=${cropW}:${cropH}:${cropX}:${cropY}`;
     }
+    
+    // Ensure even numbers for codec compatibility
+    cropW = Math.max(2, cropW - (cropW % 2));
+    cropH = Math.max(2, cropH - (cropH % 2));
+    
+    // Ensure crop doesn't exceed source dimensions
+    cropW = Math.min(cropW, sourceWidth);
+    cropH = Math.min(cropH, sourceHeight);
+    cropX = Math.max(0, Math.min(cropX, sourceWidth - cropW));
+    cropY = Math.max(0, Math.min(cropY, sourceHeight - cropH));
+    
+    return `crop=${cropW}:${cropH}:${cropX}:${cropY}`;
   }
 
   /**

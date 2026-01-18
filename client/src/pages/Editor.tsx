@@ -120,7 +120,7 @@ const Editor: React.FC = () => {
     return <div style={styles.error}>Пројекат није пронађен.</div>;
   }
 
-  // Use relative URL in production, localhost in development
+  // Use relative URL in production
   const baseUrl = process.env.NODE_ENV === 'production' ? '' : 'http://localhost:3001';
   const videoUrl = `${baseUrl}/uploads/${project.video.filename}`;
 
