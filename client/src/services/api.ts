@@ -1,10 +1,14 @@
 import axios from 'axios';
 
-const API_BASE_URL = 'http://localhost:3001/api';
+// Use relative URL in production, localhost in development
+const API_BASE_URL = process.env.NODE_ENV === 'production' 
+  ? '/api' 
+  : 'http://localhost:3001/api';
 
 const api = axios.create({
   baseURL: API_BASE_URL,
   timeout: 300000, // 5 минута timeout за велике фајлове
+  withCredentials: true, // Important for cookies/auth
 });
 
 // Video API
@@ -34,7 +38,7 @@ export const uploadVideo = async (file: File) => {
     let errorMessage = 'Грешка при уплоаду видеа';
     
     if (error.code === 'ERR_NETWORK') {
-      errorMessage = 'Мрежна грешка - проверите да ли је сервер покренут на http://localhost:3001';
+      errorMessage = 'Мрежна грешка - проверите интернет конекцију';
     } else if (error.code === 'ECONNABORTED') {
       errorMessage = 'Истекло време за уплоад - покушајте са мањим фајлом';
     } else if (error.response?.data?.error) {
