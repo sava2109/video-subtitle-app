@@ -187,24 +187,9 @@ export class VideoProcessingService {
 
     const filters: string[] = [];
     
-    // Check if video needs aspect ratio adjustment
-    const currentRatio = videoInfo.width / videoInfo.height;
-    const targetRatios: Record<AspectRatio, number> = {
-      '16:9': 16/9,
-      '9:16': 9/16,
-      '1:1': 1
-    };
-    const targetRatio = targetRatios[aspectRatio];
-    
-    // Only crop if the video aspect ratio is significantly different from target
-    const ratioDiff = Math.abs(currentRatio - targetRatio);
-    if (ratioDiff > 0.1) {
-      const cropFilter = this.getAspectRatioFilter(videoInfo.width, videoInfo.height, aspectRatio);
-      filters.push(cropFilter);
-      console.log(`📐 Adding crop filter: ${cropFilter}`);
-    } else {
-      console.log(`📐 Video already close to target ratio, skipping crop`);
-    }
+    // SKIP crop filter for now - causes issues with rotated videos
+    // FFmpeg auto-rotates based on metadata, so we just add subtitles
+    console.log(`📐 Skipping crop filter, using original video dimensions`);
 
     if (burnSubtitles) {
       // Escape path for FFmpeg filter (replace backslashes and colons)
