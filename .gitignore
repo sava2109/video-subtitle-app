@@ -1,0 +1,33 @@
+# Dependencies
+node_modules/
+client/node_modules/
+
+# Build outputs
+dist/
+client/build/
+
+# Environment files
+.env
+.env.local
+.env.production
+
+# Upload and export folders (user data)
+uploads/*
+!uploads/.gitkeep
+exports/*
+!exports/.gitkeep
+
+# Logs
+*.log
+server.log
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Test coverage
+coverage/

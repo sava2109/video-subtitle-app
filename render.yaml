@@ -1,0 +1,18 @@
+services:
+  - type: web
+    name: video-subtitle-app
+    runtime: node
+    plan: free
+    buildCommand: npm install && npm run build:all
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: SITE_PASSWORD
+        value: DeteSava
+      - key: OPENAI_API_KEY
+        sync: false
+    disk:
+      name: uploads
+      mountPath: /opt/render/project/src/uploads
+      sizeGB: 1
