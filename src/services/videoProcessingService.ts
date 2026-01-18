@@ -31,12 +31,12 @@ export class VideoProcessingService {
   }
 
   /**
-   * Get video info (width, height, duration)
+   * Get video info (width, height, duration, rotation)
    */
-  async getVideoInfo(videoPath: string): Promise<VideoInfo> {
+  async getVideoInfo(videoPath: string): Promise<VideoInfo & { rotation?: number }> {
     const command = `"${this.ffmpegPath}" -i "${videoPath}" 2>&1`;
     
-    let width = 1920, height = 1080, duration = 0;
+    let width = 1920, height = 1080, duration = 0, rotation = 0;
     
     try {
       await execPromise(command);
@@ -57,9 +57,20 @@ export class VideoProcessingService {
         width = parseInt(resMatch[1]);
         height = parseInt(resMatch[2]);
       }
+      
+      // Check for rotation
+      const rotationMatch = output.match(/rotation of (-?\d+)/);
+      if (rotationMatch) {
+        rotation = parseInt(rotationMatch[1]);
+      }
+      
+      // If video is rotated 90 or -90 degrees, swap width and height
+      if (Math.abs(rotation) === 90) {
+        [width, height] = [height, width];
+      }
     }
     
-    return { width, height, duration };
+    return { width, height, duration, rotation };
   }
 
   /**
@@ -165,8 +176,9 @@ export class VideoProcessingService {
     const outputId = uuidv4();
     const outputPath = path.join(config.exportsDir, `${outputId}.mp4`);
     
-    // Get video info
+    // Get video info (already accounts for rotation)
     const videoInfo = await this.getVideoInfo(videoPath);
+    console.log(`📐 Video info: ${videoInfo.width}x${videoInfo.height}, rotation: ${(videoInfo as any).rotation || 0}`);
     
     // Create SRT file with optimized subtitles
     const srtPath = path.join(config.exportsDir, `${outputId}.srt`);
@@ -175,10 +187,23 @@ export class VideoProcessingService {
 
     const filters: string[] = [];
     
-    // Add aspect ratio crop if not original
-    if (aspectRatio !== '16:9' || videoInfo.width / videoInfo.height !== 16/9) {
+    // Check if video needs aspect ratio adjustment
+    const currentRatio = videoInfo.width / videoInfo.height;
+    const targetRatios: Record<AspectRatio, number> = {
+      '16:9': 16/9,
+      '9:16': 9/16,
+      '1:1': 1
+    };
+    const targetRatio = targetRatios[aspectRatio];
+    
+    // Only crop if the video aspect ratio is significantly different from target
+    const ratioDiff = Math.abs(currentRatio - targetRatio);
+    if (ratioDiff > 0.1) {
       const cropFilter = this.getAspectRatioFilter(videoInfo.width, videoInfo.height, aspectRatio);
       filters.push(cropFilter);
+      console.log(`📐 Adding crop filter: ${cropFilter}`);
+    } else {
+      console.log(`📐 Video already close to target ratio, skipping crop`);
     }
 
     if (burnSubtitles) {
