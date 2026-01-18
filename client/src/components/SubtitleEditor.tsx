@@ -52,12 +52,27 @@ const SubtitleEditor: React.FC<SubtitleEditorProps> = ({ subtitles, currentTime,
     onChange(updated.map((s, i) => ({ ...s, id: i + 1 })));
   };
 
-  const handleAdd = () => {
+  const handleAddAtCurrentTime = () => {
+    // Add subtitle at current video position
+    const newSubtitle: Subtitle = {
+      id: subtitles.length + 1,
+      startTime: currentTime,
+      endTime: currentTime + 3, // 3 second default duration
+      text: '',
+    };
+    
+    // Insert in correct position based on time and re-sort
+    const updated = [...subtitles, newSubtitle].sort((a, b) => a.startTime - b.startTime);
+    // Re-number IDs after sorting
+    onChange(updated.map((s, i) => ({ ...s, id: i + 1 })));
+  };
+
+  const handleAddAtEnd = () => {
     const lastSubtitle = subtitles[subtitles.length - 1];
     const newSubtitle: Subtitle = {
       id: subtitles.length + 1,
-      startTime: lastSubtitle ? lastSubtitle.endTime : currentTime,
-      endTime: lastSubtitle ? lastSubtitle.endTime + 3 : currentTime + 3,
+      startTime: lastSubtitle ? lastSubtitle.endTime : 0,
+      endTime: lastSubtitle ? lastSubtitle.endTime + 3 : 3,
       text: '',
     };
     onChange([...subtitles, newSubtitle]);
@@ -71,7 +86,7 @@ const SubtitleEditor: React.FC<SubtitleEditorProps> = ({ subtitles, currentTime,
     <div style={styles.container}>
       <div style={styles.header}>
         <h3 style={styles.title}>📝 Титлови</h3>
-        <button style={styles.addButton} onClick={handleAdd}>
+        <button style={styles.addButton} onClick={handleAddAtCurrentTime} title="Додај титл на тренутној позицији видеа">
           + Додај титл
         </button>
       </div>
