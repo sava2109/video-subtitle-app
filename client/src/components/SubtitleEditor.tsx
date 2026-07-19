@@ -1,4 +1,5 @@
 import React from 'react';
+import { wrapText } from '../utils/subtitleLayout';
 
 interface Subtitle {
   id: number;
@@ -11,9 +12,19 @@ interface SubtitleEditorProps {
   subtitles: Subtitle[];
   currentTime: number;
   onChange: (subtitles: Subtitle[]) => void;
+  onInsertAtCurrentTime?: () => void;
+  maxCharsPerLine?: number;
+  maxLines?: number;
 }
 
-const SubtitleEditor: React.FC<SubtitleEditorProps> = ({ subtitles, currentTime, onChange }) => {
+const SubtitleEditor: React.FC<SubtitleEditorProps> = ({
+  subtitles,
+  currentTime,
+  onChange,
+  onInsertAtCurrentTime,
+  maxCharsPerLine = 40,
+  maxLines = 2,
+}) => {
   const formatTime = (seconds: number): string => {
     const mins = Math.floor(seconds / 60);
     const secs = Math.floor(seconds % 60);
@@ -67,13 +78,24 @@ const SubtitleEditor: React.FC<SubtitleEditorProps> = ({ subtitles, currentTime,
     return currentTime >= subtitle.startTime && currentTime <= subtitle.endTime;
   };
 
+  const isTooLong = (text: string) => {
+    return wrapText(text, maxCharsPerLine).length > maxLines;
+  };
+
   return (
     <div style={styles.container}>
       <div style={styles.header}>
         <h3 style={styles.title}>📝 Титлови</h3>
-        <button style={styles.addButton} onClick={handleAdd}>
-          + Додај титл
-        </button>
+        <div style={styles.headerButtons}>
+          {onInsertAtCurrentTime && (
+            <button style={styles.insertButton} onClick={onInsertAtCurrentTime}>
+              ➕ Овде ({formatTime(currentTime)})
+            </button>
+          )}
+          <button style={styles.addButton} onClick={handleAdd}>
+            + На крај
+          </button>
+        </div>
       </div>
 
       <div style={styles.list}>
@@ -126,6 +148,12 @@ const SubtitleEditor: React.FC<SubtitleEditorProps> = ({ subtitles, currentTime,
                 rows={2}
                 placeholder="Унесите текст титла..."
               />
+
+              {isTooLong(subtitle.text) && (
+                <div style={styles.tooLongWarning}>
+                  ⚠️ Не стаје у кутију ({maxLines} {maxLines === 1 ? 'ред' : 'реда'}) — при експорту се дели у више титлова
+                </div>
+              )}
             </div>
           ))
         )}
@@ -152,6 +180,20 @@ const styles: { [key: string]: React.CSSProperties } = {
     margin: 0,
     fontSize: '1.1rem',
   },
+  headerButtons: {
+    display: 'flex',
+    gap: '8px',
+  },
+  insertButton: {
+    padding: '6px 12px',
+    backgroundColor: '#007bff',
+    color: '#fff',
+    border: 'none',
+    borderRadius: '4px',
+    cursor: 'pointer',
+    fontSize: '0.9rem',
+    fontWeight: 'bold',
+  },
   addButton: {
     padding: '6px 12px',
     backgroundColor: '#28a745',
@@ -160,6 +202,14 @@ const styles: { [key: string]: React.CSSProperties } = {
     borderRadius: '4px',
     cursor: 'pointer',
     fontSize: '0.9rem',
+  },
+  tooLongWarning: {
+    marginTop: '6px',
+    fontSize: '0.75rem',
+    color: '#856404',
+    backgroundColor: '#fff3cd',
+    padding: '4px 8px',
+    borderRadius: '4px',
   },
   list: {
     maxHeight: '400px',
@@ -194,14 +244,14 @@ const styles: { [key: string]: React.CSSProperties } = {
     fontWeight: 'bold',
   },
   deleteButton: {
-    width: '24px',
-    height: '24px',
+    width: '32px',
+    height: '32px',
     backgroundColor: '#dc3545',
     color: '#fff',
     border: 'none',
     borderRadius: '50%',
     cursor: 'pointer',
-    fontSize: '1rem',
+    fontSize: '1.1rem',
     lineHeight: '1',
   },
   timeRow: {

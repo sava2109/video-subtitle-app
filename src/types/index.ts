@@ -59,11 +59,14 @@ export interface ExportOptions {
   quality: 'low' | 'medium' | 'high' | 'original';
   aspectRatio: AspectRatio;
   subtitlePosition: SubtitlePosition;
-  fontSize: number; // 16-48
+  fontSize: number; // пиксели у излазном видеу
   fontColor: string; // hex color
   backgroundColor: string; // hex color with opacity
   maxCharsPerLine: number; // default 40
   maxLines: number; // default 2
+  verticalPosition: number; // доња ивица титла, % висине видеа од врха (5-98)
+  maxBoxWidthPercent: number; // макс. ширина кутије титла, % ширине видеа
+  maxBoxHeightPx: number; // макс. висина кутије титла у px (одређује број редова)
 }
 
 // Transcription types

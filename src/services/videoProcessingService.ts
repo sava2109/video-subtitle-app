@@ -1,10 +1,16 @@
-import { exec } from 'child_process';
+import { exec, spawn } from 'child_process';
 import { promisify } from 'util';
 import fs from 'fs';
 import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
-import { Subtitle, ExportOptions, AspectRatio, SubtitlePosition } from '../types';
-import { generateSRT } from '../utils/srtParser';
+import { Subtitle, ExportOptions, AspectRatio } from '../types';
+import { generateASS } from '../utils/assGenerator';
+import {
+  TARGET_DIMS,
+  DEFAULT_FONT_SIZE,
+  DEFAULT_VERTICAL_POSITION,
+  DEFAULT_MAX_BOX_WIDTH_PERCENT,
+} from '../utils/subtitleLayout';
 import { config } from '../config';
 
 const execPromise = promisify(exec);
@@ -13,63 +19,62 @@ interface VideoInfo {
   width: number;
   height: number;
   duration: number;
+  rotation?: number;
 }
 
 export class VideoProcessingService {
   private ffmpegPath: string;
-  private ffprobePath: string;
 
   constructor() {
     // Use system ffmpeg in production (Render has it), ffmpeg-static locally
     if (process.env.NODE_ENV === 'production') {
       this.ffmpegPath = 'ffmpeg';
-      this.ffprobePath = 'ffprobe';
     } else {
       this.ffmpegPath = require('ffmpeg-static');
-      this.ffprobePath = this.ffmpegPath.replace('ffmpeg', 'ffprobe');
     }
   }
 
   /**
    * Get video info (width, height, duration, rotation)
    */
-  async getVideoInfo(videoPath: string): Promise<VideoInfo & { rotation?: number }> {
+  async getVideoInfo(videoPath: string): Promise<VideoInfo> {
     const command = `"${this.ffmpegPath}" -i "${videoPath}" 2>&1`;
-    
+
     let width = 1920, height = 1080, duration = 0, rotation = 0;
-    
+
     try {
       await execPromise(command);
     } catch (error: any) {
-      const output = error.stderr || error.message || '';
-      
+      // 2>&1 шаље ffmpeg испис у stdout, па проверавамо оба
+      const output = `${error.stdout || ''}\n${error.stderr || ''}\n${error.message || ''}`;
+
       // Duration
       const durationMatch = output.match(/Duration: (\d{2}):(\d{2}):(\d{2})\.(\d{2})/);
       if (durationMatch) {
-        duration = parseInt(durationMatch[1]) * 3600 + 
-                   parseInt(durationMatch[2]) * 60 + 
+        duration = parseInt(durationMatch[1]) * 3600 +
+                   parseInt(durationMatch[2]) * 60 +
                    parseInt(durationMatch[3]);
       }
-      
+
       // Resolution
       const resMatch = output.match(/(\d{3,4})x(\d{3,4})/);
       if (resMatch) {
         width = parseInt(resMatch[1]);
         height = parseInt(resMatch[2]);
       }
-      
+
       // Check for rotation
       const rotationMatch = output.match(/rotation of (-?\d+)/);
       if (rotationMatch) {
         rotation = parseInt(rotationMatch[1]);
       }
-      
+
       // If video is rotated 90 or -90 degrees, swap width and height
       if (Math.abs(rotation) === 90) {
         [width, height] = [height, width];
       }
     }
-    
+
     return { width, height, duration, rotation };
   }
 
@@ -82,163 +87,179 @@ export class VideoProcessingService {
   }
 
   /**
-   * Calculate crop/scale parameters for aspect ratio
+   * Crop филтер преко израза (iw/ih) — не зависи од стварних димензија,
+   * па ради исправно и за ротиране снимке (FFmpeg аутоматски примени
+   * ротацију из метаподатака ПРЕ филтера). Центриран рез, парне димензије.
    */
-  private getAspectRatioFilter(
-    sourceWidth: number, 
-    sourceHeight: number, 
-    targetRatio: AspectRatio
-  ): string {
-    const ratios: Record<AspectRatio, number> = {
-      '16:9': 16/9,
-      '9:16': 9/16,
-      '1:1': 1
-    };
-    
-    const targetRatioValue = ratios[targetRatio];
-    const sourceRatioValue = sourceWidth / sourceHeight;
-    
-    let cropW: number, cropH: number, cropX: number, cropY: number;
-    
-    if (sourceRatioValue > targetRatioValue) {
-      // Source is wider - crop sides
-      cropH = sourceHeight;
-      cropW = Math.round(sourceHeight * targetRatioValue);
-      cropX = Math.round((sourceWidth - cropW) / 2);
-      cropY = 0;
-    } else {
-      // Source is taller or equal - crop top/bottom
-      cropW = sourceWidth;
-      cropH = Math.round(sourceWidth / targetRatioValue);
-      // If cropH is larger than source, use source height and recalculate width
-      if (cropH > sourceHeight) {
-        cropH = sourceHeight;
-        cropW = Math.round(sourceHeight * targetRatioValue);
-        cropX = Math.round((sourceWidth - cropW) / 2);
-        cropY = 0;
-      } else {
-        cropX = 0;
-        cropY = Math.round((sourceHeight - cropH) / 2);
-      }
-    }
-    
-    // Ensure even numbers for codec compatibility
-    cropW = Math.max(2, cropW - (cropW % 2));
-    cropH = Math.max(2, cropH - (cropH % 2));
-    
-    // Ensure crop doesn't exceed source dimensions
-    cropW = Math.min(cropW, sourceWidth);
-    cropH = Math.min(cropH, sourceHeight);
-    cropX = Math.max(0, Math.min(cropX, sourceWidth - cropW));
-    cropY = Math.max(0, Math.min(cropY, sourceHeight - cropH));
-    
-    return `crop=${cropW}:${cropH}:${cropX}:${cropY}`;
+  private getCropScaleFilters(aspectRatio: AspectRatio): string[] {
+    const target = TARGET_DIMS[aspectRatio] || TARGET_DIMS['16:9'];
+    const r = (target.width / target.height).toFixed(6);
+
+    const cropW = `floor(min(iw,ih*${r})/2)*2`;
+    const cropH = `floor(min(ih,iw/${r})/2)*2`;
+
+    return [
+      `crop='${cropW}':'${cropH}'`,
+      `scale=${target.width}:${target.height}`,
+      'setsar=1',
+    ];
   }
 
   /**
-   * Get subtitle position Y value based on position and video height
+   * Направи безбедно име излазног фајла од оригиналног имена видеа.
    */
-  private getSubtitleY(position: SubtitlePosition, videoHeight: number, fontSize: number): string {
-    const margin = 30;
-    const lineHeight = fontSize * 1.2;
-    const twoLineHeight = lineHeight * 2;
-    
-    switch (position) {
-      case 'top':
-        return `y=${margin}`;
-      case 'center':
-        return `y=(h-${twoLineHeight})/2`;
-      case 'bottom':
-      default:
-        return `y=h-${twoLineHeight}-${margin}`;
-    }
+  private buildOutputName(originalName: string | undefined, aspectRatio: AspectRatio): string {
+    const base = (originalName
+      ? path.basename(originalName, path.extname(originalName))
+      : 'video')
+      .replace(/[<>:"/\\|?*\x00-\x1F]/g, '')
+      .replace(/\s+/g, '_')
+      .trim() || 'video';
+
+    const now = new Date();
+    const stamp = [
+      now.getFullYear(),
+      String(now.getMonth() + 1).padStart(2, '0'),
+      String(now.getDate()).padStart(2, '0'),
+    ].join('') + '_' + [
+      String(now.getHours()).padStart(2, '0'),
+      String(now.getMinutes()).padStart(2, '0'),
+      String(now.getSeconds()).padStart(2, '0'),
+    ].join('');
+
+    const ratioSuffix = aspectRatio.replace(':', 'x');
+    return `${base}_${ratioSuffix}_${stamp}.mp4`;
   }
 
   /**
-   * Export video with burned-in subtitles and formatting options
+   * Export video with burned-in subtitles and formatting options.
+   *
+   * Видео се сече (crop) на изабрани формат и скалира на фиксну резолуцију
+   * (16:9 -> 1920x1080, 9:16 -> 1080x1920, 1:1 -> 1080x1080), а титлови се
+   * пеку преко ASS фајла чији PlayRes одговара тој резолуцији — величина
+   * фонта је тако СТВАРНИ број пиксела у видеу, исто као у прегледу.
    */
   async exportVideoWithSubtitles(
     videoPath: string,
     subtitles: Subtitle[],
-    options: Partial<ExportOptions> = {}
+    options: Partial<ExportOptions> & { originalName?: string } = {},
+    onProgress?: (percent: number) => void
   ): Promise<string> {
     const {
       burnSubtitles = true,
       aspectRatio = '16:9',
-      subtitlePosition = 'bottom',
-      fontSize = 24,
+      fontSize = DEFAULT_FONT_SIZE,
       fontColor = 'FFFFFF',
-      backgroundColor = '000000',
-      maxCharsPerLine = 40,
-      maxLines = 2,
+      verticalPosition = DEFAULT_VERTICAL_POSITION,
+      maxBoxWidthPercent = DEFAULT_MAX_BOX_WIDTH_PERCENT,
+      originalName,
     } = options;
 
-    const outputId = uuidv4();
-    const outputPath = path.join(config.exportsDir, `${outputId}.mp4`);
-    
-    // Get video info (already accounts for rotation)
-    const videoInfo = await this.getVideoInfo(videoPath);
-    console.log(`📐 Video info: ${videoInfo.width}x${videoInfo.height}, rotation: ${(videoInfo as any).rotation || 0}`);
-    
-    // Create SRT file with optimized subtitles
-    const srtPath = path.join(config.exportsDir, `${outputId}.srt`);
-    const srtContent = generateSRT(subtitles);
-    fs.writeFileSync(srtPath, srtContent, 'utf-8');
+    const target = TARGET_DIMS[aspectRatio as AspectRatio] || TARGET_DIMS['16:9'];
 
-    const filters: string[] = [];
-    
-    // SKIP crop filter for now - causes issues with rotated videos
-    // FFmpeg auto-rotates based on metadata, so we just add subtitles
-    console.log(`📐 Skipping crop filter, using original video dimensions`);
+    const outputName = this.buildOutputName(originalName, aspectRatio as AspectRatio);
+    const outputPath = path.join(config.exportsDir, outputName);
+
+    // Трајање улаза — потребно за рачунање процента напретка
+    const inputInfo = await this.getVideoInfo(videoPath);
+    const totalDuration = inputInfo.duration;
+
+    const filters: string[] = this.getCropScaleFilters(aspectRatio as AspectRatio);
+
+    let assPath: string | null = null;
 
     if (burnSubtitles) {
-      // Escape path for FFmpeg filter (replace backslashes and colons)
-      const escapedSrtPath = srtPath
+      assPath = path.join(config.exportsDir, `${uuidv4()}.ass`);
+      const assContent = generateASS(subtitles, {
+        width: target.width,
+        height: target.height,
+        fontSize,
+        fontColor,
+        verticalPosition,
+        maxBoxWidthPercent,
+      });
+      fs.writeFileSync(assPath, assContent, 'utf-8');
+
+      // Escape path for FFmpeg filter (forward slashes, escaped colon)
+      const escapedAssPath = assPath
         .replace(/\\/g, '/')
         .replace(/:/g, '\\:');
-      
-      // Calculate margins based on aspect ratio
-      let marginV = 30;
-      let marginL = 20;  // Left margin
-      let marginR = 20;  // Right margin
-      
-      // For 9:16 (vertical), use minimal margins to maximize text width
-      if (aspectRatio === '9:16') {
-        marginL = 5;
-        marginR = 5;
-        marginV = 50;  // A bit more space from bottom
-      } else if (aspectRatio === '1:1') {
-        marginL = 15;
-        marginR = 15;
-      }
-      
-      if (subtitlePosition === 'top') {
-        marginV = 30;
-      } else if (subtitlePosition === 'center') {
-        marginV = Math.round(videoInfo.height / 2 - fontSize);
-      }
-      
-      // Build subtitle filter with styling - WrapStyle=0 for smart wrapping
-      const subtitleFilter = `subtitles='${escapedSrtPath}':force_style='FontName=Arial,FontSize=${fontSize},PrimaryColour=&H${fontColor},OutlineColour=&H${backgroundColor},Outline=2,BackColour=&H80000000,BorderStyle=4,MarginV=${marginV},MarginL=${marginL},MarginR=${marginR},Alignment=${subtitlePosition === 'top' ? 6 : subtitlePosition === 'center' ? 5 : 2},WrapStyle=0'`;
-      
-      filters.push(subtitleFilter);
+
+      filters.push(`subtitles='${escapedAssPath}'`);
     }
 
-    // Build FFmpeg command
-    let filterComplex = filters.length > 0 ? `-vf "${filters.join(',')}"` : '';
-    
-    const command = `"${this.ffmpegPath}" -i "${videoPath}" ${filterComplex} -c:v libx264 -preset fast -crf 23 -c:a aac -b:a 128k -y "${outputPath}"`;
-    
-    console.log('🎬 Export command:', command);
-    
-    await execPromise(command);
-    
-    // Cleanup temp SRT
-    if (fs.existsSync(srtPath)) {
-      fs.unlinkSync(srtPath);
+    const args = [
+      '-i', videoPath,
+      '-vf', filters.join(','),
+      '-c:v', 'libx264',
+      '-preset', 'fast',
+      '-crf', '20',
+      '-c:a', 'aac',
+      '-b:a', '128k',
+      '-movflags', '+faststart',
+      '-progress', 'pipe:1',
+      '-y', outputPath,
+    ];
+
+    console.log('🎬 Export command:', this.ffmpegPath, args.join(' '));
+
+    try {
+      await this.runFfmpegWithProgress(args, totalDuration, onProgress);
+    } finally {
+      // Cleanup temp ASS file
+      if (assPath && fs.existsSync(assPath)) {
+        fs.unlinkSync(assPath);
+      }
+    }
+
+    if (!fs.existsSync(outputPath)) {
+      throw new Error('FFmpeg није направио излазни фајл.');
     }
 
     return outputPath;
+  }
+
+  /**
+   * Покрени ffmpeg преко spawn-а и јављај проценат напретка.
+   * -progress pipe:1 исписује out_time= редове на stdout.
+   */
+  private runFfmpegWithProgress(
+    args: string[],
+    totalDurationSec: number,
+    onProgress?: (percent: number) => void
+  ): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const proc = spawn(this.ffmpegPath, args, { windowsHide: true });
+
+      let stderrTail = '';
+
+      proc.stdout.on('data', (data: Buffer) => {
+        if (!onProgress || totalDurationSec <= 0) return;
+        const match = data.toString().match(/out_time=(\d+):(\d{2}):(\d{2})\.(\d+)/);
+        if (match) {
+          const seconds =
+            parseInt(match[1]) * 3600 + parseInt(match[2]) * 60 + parseInt(match[3]);
+          const percent = Math.min(99, Math.round((seconds / totalDurationSec) * 100));
+          onProgress(percent);
+        }
+      });
+
+      proc.stderr.on('data', (data: Buffer) => {
+        stderrTail = (stderrTail + data.toString()).slice(-4000);
+      });
+
+      proc.on('error', (err) => reject(err));
+
+      proc.on('close', (code) => {
+        if (code === 0) {
+          if (onProgress) onProgress(100);
+          resolve();
+        } else {
+          const lastLines = stderrTail.trim().split('\n').slice(-5).join('\n');
+          reject(new Error(`FFmpeg грешка (код ${code}): ${lastLines}`));
+        }
+      });
+    });
   }
 
   /**
@@ -248,15 +269,12 @@ export class VideoProcessingService {
     videoPath: string,
     aspectRatio: AspectRatio
   ): Promise<string> {
-    const outputId = uuidv4();
-    const outputPath = path.join(config.exportsDir, `${outputId}.mp4`);
-    
-    const videoInfo = await this.getVideoInfo(videoPath);
-    const cropFilter = this.getAspectRatioFilter(videoInfo.width, videoInfo.height, aspectRatio);
-    
-    const command = `"${this.ffmpegPath}" -i "${videoPath}" -vf "${cropFilter}" -c:v libx264 -preset fast -crf 23 -c:a aac -b:a 128k -y "${outputPath}"`;
-    
-    await execPromise(command);
+    const outputPath = path.join(config.exportsDir, this.buildOutputName(undefined, aspectRatio));
+    const filters = this.getCropScaleFilters(aspectRatio);
+
+    const command = `"${this.ffmpegPath}" -i "${videoPath}" -vf "${filters.join(',')}" -c:v libx264 -preset fast -crf 20 -c:a aac -b:a 128k -movflags +faststart -y "${outputPath}"`;
+
+    await execPromise(command, { maxBuffer: 50 * 1024 * 1024 });
     return outputPath;
   }
 
@@ -266,7 +284,7 @@ export class VideoProcessingService {
   async createThumbnail(videoPath: string): Promise<string> {
     const thumbnailPath = videoPath.replace(/\.[^/.]+$/, '_thumb.jpg');
     const command = `"${this.ffmpegPath}" -i "${videoPath}" -ss 00:00:01 -vframes 1 -y "${thumbnailPath}"`;
-    
+
     await execPromise(command);
     return thumbnailPath;
   }

@@ -111,6 +111,18 @@ export const deleteSubtitle = async (projectId: string, subtitleId: number) => {
   return response.data;
 };
 
+export const importSRT = async (
+  projectId: string,
+  srtContent: string,
+  convertToCyrillic = true
+) => {
+  const response = await api.post(`/subtitles/${projectId}/import`, {
+    srtContent,
+    convertToCyrillic,
+  });
+  return response.data;
+};
+
 export const downloadSRT = async (projectId: string) => {
   const response = await api.get(`/subtitles/${projectId}/download/srt`, {
     responseType: 'blob',
@@ -129,21 +141,42 @@ export const downloadVTT = async (projectId: string) => {
 export interface ExportVideoOptions {
   burnSubtitles?: boolean;
   aspectRatio?: '16:9' | '9:16' | '1:1';
-  subtitlePosition?: 'top' | 'center' | 'bottom';
   fontSize?: number;
   fontColor?: string;
-  backgroundColor?: string;
+  verticalPosition?: number;
+  maxBoxWidthPercent?: number;
+  maxBoxHeightPx?: number;
 }
 
+/**
+ * Покреће експорт као позадински посао — враћа { jobId }.
+ * Напредак се прати преко getExportStatus(jobId).
+ */
 export const exportVideo = async (projectId: string, options: ExportVideoOptions = {}) => {
   const response = await api.post(`/videos/${projectId}/export`, {
     burnSubtitles: options.burnSubtitles ?? true,
     aspectRatio: options.aspectRatio ?? '16:9',
-    subtitlePosition: options.subtitlePosition ?? 'bottom',
-    fontSize: options.fontSize ?? 24,
+    fontSize: options.fontSize ?? 64,
     fontColor: options.fontColor ?? 'FFFFFF',
-    backgroundColor: options.backgroundColor ?? '000000',
+    verticalPosition: options.verticalPosition ?? 95,
+    maxBoxWidthPercent: options.maxBoxWidthPercent ?? 92,
+    maxBoxHeightPx: options.maxBoxHeightPx ?? 145,
   });
+  return response.data;
+};
+
+export interface ExportStatus {
+  status: 'processing' | 'done' | 'error';
+  progress: number;
+  downloadUrl?: string;
+  filename?: string;
+  savedTo?: string;
+  exportsFolder?: string;
+  error?: string;
+}
+
+export const getExportStatus = async (jobId: string) => {
+  const response = await api.get(`/videos/export-status/${jobId}`);
   return response.data;
 };
 

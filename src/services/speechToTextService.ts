@@ -19,11 +19,20 @@ export interface TranscriptionOptions {
 
 export class SpeechToTextService {
   private openai: OpenAI | null = null;
+  private groq: OpenAI | null = null;
   private ffmpegPath: string;
 
   constructor() {
     if (config.openaiApiKey) {
       this.openai = new OpenAI({ apiKey: config.openaiApiKey });
+    }
+    // Groq — БЕСПЛАТНА алтернатива (whisper-large-v3, OpenAI-компатибилан API)
+    // Кључ се добија бесплатно на https://console.groq.com
+    if (config.groqApiKey) {
+      this.groq = new OpenAI({
+        apiKey: config.groqApiKey,
+        baseURL: 'https://api.groq.com/openai/v1',
+      });
     }
     // Use system ffmpeg in production (Render has it), ffmpeg-static locally
     if (process.env.NODE_ENV === 'production') {
@@ -50,8 +59,13 @@ export class SpeechToTextService {
     const audioPath = await this.extractAndCleanAudio(videoPath, opts);
 
     try {
-      if (this.openai) {
-        return await this.transcribeWithWhisperAPI(audioPath);
+      if (this.groq) {
+        // Бесплатан Groq Whisper има предност
+        console.log('🆓 Користим Groq Whisper (бесплатно)');
+        return await this.transcribeWithWhisperAPI(this.groq, 'whisper-large-v3', audioPath);
+      } else if (this.openai) {
+        console.log('💰 Користим OpenAI Whisper');
+        return await this.transcribeWithWhisperAPI(this.openai, 'whisper-1', audioPath);
       } else {
         // Fallback: demo mode with sample data
         return this.getDemoTranscription();
@@ -109,19 +123,19 @@ export class SpeechToTextService {
   }
 
   /**
-   * Transcribe using OpenAI Whisper API with word-level timestamps
+   * Transcribe using a Whisper-compatible API (OpenAI or Groq) with word-level timestamps
    */
-  private async transcribeWithWhisperAPI(audioPath: string): Promise<TranscriptionResult> {
-    if (!this.openai) {
-      throw new Error('OpenAI API key not configured');
-    }
-
+  private async transcribeWithWhisperAPI(
+    client: OpenAI,
+    model: string,
+    audioPath: string
+  ): Promise<TranscriptionResult> {
     const audioFile = fs.createReadStream(audioPath);
 
     // Use verbose_json with WORD-level timestamps for precise timing
-    const response = await this.openai.audio.transcriptions.create({
+    const response = await client.audio.transcriptions.create({
       file: audioFile,
-      model: 'whisper-1',
+      model,
       language: 'sr', // Serbian
       response_format: 'verbose_json',
       timestamp_granularities: ['word', 'segment'],

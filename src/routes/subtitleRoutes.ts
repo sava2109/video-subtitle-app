@@ -13,6 +13,9 @@ router.put('/:videoId/:subtitleId', subtitleController.updateSubtitle.bind(subti
 // Update all subtitles for a video
 router.put('/:videoId', subtitleController.updateAllSubtitles.bind(subtitleController));
 
+// Import subtitles from SRT content
+router.post('/:videoId/import', subtitleController.importSRT.bind(subtitleController));
+
 // Delete subtitle
 router.delete('/:videoId/:subtitleId', subtitleController.deleteSubtitle.bind(subtitleController));
 

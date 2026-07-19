@@ -76,6 +76,9 @@ router.post('/upload', handleUpload, videoController.uploadVideo.bind(videoContr
 // Get all videos
 router.get('/', videoController.getVideos.bind(videoController));
 
+// Export job status (мора пре /:id руте)
+router.get('/export-status/:jobId', exportController.getExportStatus.bind(exportController));
+
 // Get video by ID
 router.get('/:id', videoController.getVideo.bind(videoController));
 

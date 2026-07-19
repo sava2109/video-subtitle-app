@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
-import { generateSRT, generateVTT } from '../utils/srtParser';
+import { generateSRT, generateVTT, parseSRT } from '../utils/srtParser';
+import { ensureCyrillic } from '../utils/latinToCyrillic';
 import { Subtitle } from '../types';
 
 // Shared storage reference (u produkciji koristiti bazu)
@@ -76,6 +77,46 @@ export class SubtitleController {
       project.updatedAt = new Date();
 
       res.json({ success: true, data: project.subtitles });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  }
+
+  // Import subtitles from an SRT file (нпр. из бесплатних алата)
+  async importSRT(req: Request, res: Response): Promise<void> {
+    try {
+      const { videoId } = req.params;
+      const { srtContent, convertToCyrillic = true } = req.body;
+
+      const project = getProject(videoId);
+      if (!project) {
+        res.status(404).json({ success: false, error: 'Пројекат није пронађен.' });
+        return;
+      }
+
+      if (!srtContent || typeof srtContent !== 'string') {
+        res.status(400).json({ success: false, error: 'Није послат садржај SRT фајла.' });
+        return;
+      }
+
+      const parsed = parseSRT(srtContent);
+      if (parsed.length === 0) {
+        res.status(400).json({ success: false, error: 'SRT фајл није валидан или је празан.' });
+        return;
+      }
+
+      project.subtitles = parsed.map((s: Subtitle, i: number) => ({
+        ...s,
+        id: i + 1,
+        text: convertToCyrillic ? ensureCyrillic(s.text) : s.text,
+      }));
+      project.status = 'transcribed';
+      project.updatedAt = new Date();
+
+      res.json({
+        success: true,
+        data: { subtitles: project.subtitles, message: `Увезено ${parsed.length} титлова.` }
+      });
     } catch (error: any) {
       res.status(500).json({ success: false, error: error.message });
     }

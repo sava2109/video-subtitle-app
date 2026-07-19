@@ -218,7 +218,7 @@ export class VideoController {
       const outputPath = await this.videoProcessingService.exportVideoWithSubtitles(
         project.video.path,
         project.subtitles,
-        burnSubtitles
+        { burnSubtitles, originalName: project.video.originalName }
       );
 
       project.status = 'completed';

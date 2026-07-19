@@ -9,10 +9,11 @@ services:
       - key: NODE_ENV
         value: production
       - key: SITE_PASSWORD
-        value: DeteSava
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false
       - key: OPENAI_API_KEY
         sync: false
-    disk:
-      name: uploads
-      mountPath: /opt/render/project/src/uploads
-      sizeGB: 1
+    # Napomena: besplatan plan ne podržava trajni disk (persistent disk zahteva
+    # plaćeni plan). uploads/ i exports/ se brišu na svaki restart/redeploy/spin-down
+    # posle 15 min neaktivnosti — isto važi i za listu projekata (drži se u memoriji).

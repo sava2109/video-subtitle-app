@@ -12,6 +12,10 @@ export const config = {
   
   // OpenAI Whisper API (preporučeno za srpski)
   openaiApiKey: process.env.OPENAI_API_KEY || '',
+
+  // Groq Whisper API — BESPLATNA alternativa (https://console.groq.com)
+  // Ako je postavljen, koristi se umesto OpenAI-a
+  groqApiKey: process.env.GROQ_API_KEY || '',
   
   // Video processing
   maxFileSize: 500 * 1024 * 1024, // 500MB
