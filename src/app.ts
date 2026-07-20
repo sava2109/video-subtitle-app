@@ -60,7 +60,15 @@ app.use('/exports', passwordAuth);
 
 // Static folders
 app.use('/uploads', express.static(uploadsDir));
-app.use('/exports', express.static(exportsDir));
+// Експорти се шаљу као download (attachment) да их телефон сачува уместо да их пушта у табу
+app.use('/exports', express.static(exportsDir, {
+  setHeaders: (res, filePath) => {
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename*=UTF-8''${encodeURIComponent(path.basename(filePath))}`
+    );
+  },
+}));
 
 // Routes
 app.use('/api/videos', videoRoutes);

@@ -95,12 +95,13 @@ const ExportButton: React.FC<ExportButtonProps> = ({ projectId, videoSettings, s
             stopPolling();
             setExporting(false);
             setProgress(100);
+            // Без аутоматског отварања — Safari на телефону то блокира.
+            // Уместо тога се приказује дугме "Преузми видео" (директан клик увек ради).
             setLastExport({
               savedTo: job.savedTo || '',
               filename: job.filename || '',
               downloadUrl: job.downloadUrl,
             });
-            window.open(`${baseUrl}${job.downloadUrl}`, '_blank');
           } else if (job.status === 'error') {
             stopPolling();
             setExporting(false);
@@ -223,14 +224,15 @@ const ExportButton: React.FC<ExportButtonProps> = ({ projectId, videoSettings, s
 
           {lastExport && (
             <div style={styles.savedBox}>
-              <strong>✅ Сачувано:</strong>
-              <div style={styles.savedPath}>{lastExport.savedTo}</div>
-              <button
-                style={styles.downloadAgainBtn}
-                onClick={() => window.open(`${baseUrl}${lastExport.downloadUrl}`, '_blank')}
+              <strong>✅ Видео је спреман!</strong>
+              <a
+                href={`${baseUrl}${lastExport.downloadUrl}`}
+                download={lastExport.filename}
+                style={styles.downloadVideoBtn}
               >
-                ⬇️ Преузми поново
-              </button>
+                ⬇️ Преузми видео
+              </a>
+              <div style={styles.savedPath}>{lastExport.savedTo}</div>
             </div>
           )}
 
@@ -386,14 +388,17 @@ const styles: { [key: string]: React.CSSProperties } = {
     borderRadius: '4px',
     border: '1px solid #c3e6cb',
   },
-  downloadAgainBtn: {
-    padding: '6px 12px',
-    backgroundColor: '#155724',
+  downloadVideoBtn: {
+    display: 'block',
+    margin: '10px 0 6px 0',
+    padding: '14px',
+    background: 'linear-gradient(180deg, #37b24d, #2b8a3e)',
     color: '#fff',
-    border: 'none',
-    borderRadius: '4px',
-    cursor: 'pointer',
-    fontSize: '0.8rem',
+    borderRadius: '8px',
+    fontSize: '1rem',
+    fontWeight: 'bold',
+    textAlign: 'center',
+    textDecoration: 'none',
   },
   subtitleDownloads: {
     display: 'flex',
