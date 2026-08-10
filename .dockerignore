@@ -1,0 +1,16 @@
+node_modules
+client/node_modules
+dist
+client/build
+uploads
+exports
+.git
+.gitignore
+.env
+.env.*
+*.log
+*.bat
+.vscode
+.idea
+DEPLOY*.md
+README.md
