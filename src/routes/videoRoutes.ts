@@ -91,4 +91,7 @@ router.post('/:id/transcribe', videoController.transcribeVideo.bind(videoControl
 // Export video with subtitles (use ExportController with full options)
 router.post('/:id/export', exportController.exportVideoWithSubtitles.bind(exportController));
 
+// Тачан преглед једног фрејма (исти рендер као експорт)
+router.post('/:id/preview-frame', exportController.previewFrame.bind(exportController));
+
 export default router;

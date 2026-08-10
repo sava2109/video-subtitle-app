@@ -10,6 +10,11 @@ const getProject = (id: string) => {
   return projects?.get(id);
 };
 
+const persistProjects = () => {
+  const { saveProjects } = require('./videoController');
+  saveProjects?.();
+};
+
 export class SubtitleController {
   // Get subtitles for a video
   async getSubtitles(req: Request, res: Response): Promise<void> {
@@ -54,6 +59,7 @@ export class SubtitleController {
       if (endTime !== undefined) project.subtitles[subtitleIndex].endTime = endTime;
 
       project.updatedAt = new Date();
+      persistProjects();
 
       res.json({ success: true, data: project.subtitles[subtitleIndex] });
     } catch (error: any) {
@@ -75,6 +81,7 @@ export class SubtitleController {
 
       project.subtitles = subtitles;
       project.updatedAt = new Date();
+      persistProjects();
 
       res.json({ success: true, data: project.subtitles });
     } catch (error: any) {
@@ -112,6 +119,7 @@ export class SubtitleController {
       }));
       project.status = 'transcribed';
       project.updatedAt = new Date();
+      persistProjects();
 
       res.json({
         success: true,
@@ -137,6 +145,7 @@ export class SubtitleController {
         (s: Subtitle) => s.id !== parseInt(subtitleId)
       );
       project.updatedAt = new Date();
+      persistProjects();
 
       res.json({ success: true, message: 'Титл обрисан.' });
     } catch (error: any) {

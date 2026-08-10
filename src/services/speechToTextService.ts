@@ -68,6 +68,11 @@ export class SpeechToTextService {
         return await this.transcribeWithWhisperAPI(this.openai, 'whisper-1', audioPath);
       } else {
         // Fallback: demo mode with sample data
+        console.warn(
+          '⚠️  НЕМА API КЉУЧА — враћам ДЕМО титлове (нису препис снимка).\n' +
+          '    Додај GROQ_API_KEY (бесплатно, https://console.groq.com) или\n' +
+          '    OPENAI_API_KEY у .env фајл и рестартуј сервер.'
+        );
         return this.getDemoTranscription();
       }
     } finally {
@@ -271,6 +276,7 @@ export class SpeechToTextService {
       ],
       language: 'sr',
       duration: 18,
+      isDemo: true,
     };
   }
 }

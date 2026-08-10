@@ -26,6 +26,13 @@ export const CHAR_WIDTH_RATIO = 0.55;
 // Висина једног реда у односу на величину фонта
 export const LINE_HEIGHT_RATIO = 1.1;
 
+// Размак између кутија суседних редова, у односу на величину фонта.
+// Спречава преклапање позадине (кутије) првог и другог реда.
+export const LINE_GAP_RATIO = 0.12;
+
+// Унутрашњи размак кутије (padding), у односу на величину фонта
+export const BOX_PADDING_RATIO = 0.1;
+
 // Подразумеване вредности подешавања (пиксели/проценти ИЗЛАЗНОГ видеа)
 export const DEFAULT_FONT_SIZE = 64;
 export const DEFAULT_VERTICAL_POSITION = 95; // доња ивица титла на 95% висине

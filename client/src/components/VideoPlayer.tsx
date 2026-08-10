@@ -3,6 +3,8 @@ import {
   AspectRatio,
   TARGET_DIMS,
   LINE_HEIGHT_RATIO,
+  LINE_GAP_RATIO,
+  BOX_PADDING_RATIO,
   DEFAULT_FONT_SIZE,
   DEFAULT_VERTICAL_POSITION,
   DEFAULT_MAX_BOX_WIDTH_PERCENT,
@@ -12,6 +14,7 @@ import {
   getDisplayTextAtTime,
 } from '../utils/subtitleLayout';
 import { useIsMobile } from '../hooks/useIsMobile';
+import { ensureCyrillic } from '../utils/latinToCyrillic';
 
 interface Subtitle {
   id: number;
@@ -117,10 +120,11 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
       );
 
       if (subtitle?.text) {
-        // Исто преламање и подела као при експорту
+        // Исто преламање и подела као при експорту — укључујући
+        // конверзију у ћирилицу коју експорт увек ради
         setCurrentSubtitle(
           getDisplayTextAtTime(
-            subtitle.text,
+            ensureCyrillic(subtitle.text),
             subtitle.startTime,
             subtitle.endTime,
             currentTime,
@@ -321,15 +325,19 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
         {currentSubtitle && previewScale > 0 && (
           <div style={getSubtitlePosition()}>
-            {/* Кутија по реду — исто као libass BorderStyle=3 у експорту */}
+            {/* Кутија по реду — исто као у експорту (засебан ред = засебна кутија),
+                са размаком између редова да се позадине не преклапају */}
             {currentSubtitle.split('\n').map((line, i) => (
-              <div key={i}>
+              <div
+                key={i}
+                style={{ marginTop: i > 0 ? `${previewFontPx * LINE_GAP_RATIO}px` : 0 }}
+              >
                 <span
                   style={{
                     ...styles.subtitleText,
                     fontSize: `${previewFontPx}px`,
                     backgroundColor: 'rgba(0, 0, 0, 0.5)',
-                    padding: `${Math.max(1, previewFontPx * 0.1)}px`,
+                    padding: `${Math.max(1, previewFontPx * BOX_PADDING_RATIO)}px`,
                     boxDecorationBreak: 'clone',
                   }}
                 >
@@ -445,7 +453,7 @@ const styles: { [key: string]: React.CSSProperties } = {
     textAlign: 'center',
     fontFamily: 'Arial, sans-serif',
     textShadow: '1px 1px 2px rgba(0,0,0,0.9)',
-    lineHeight: 1.25,
+    lineHeight: LINE_HEIGHT_RATIO,
     display: 'inline-block',
   },
   previewInfo: {

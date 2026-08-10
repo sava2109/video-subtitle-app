@@ -165,6 +165,34 @@ export const exportVideo = async (projectId: string, options: ExportVideoOptions
   return response.data;
 };
 
+/**
+ * 📸 Тачан преглед — сервер рендерује један фрејм кроз исти FFmpeg/libass
+ * pipeline као експорт. Враћа PNG као Blob.
+ * Прослеђени титлови (несачуване измене) имају предност над сачуваним.
+ */
+export const getExportPreviewFrame = async (
+  projectId: string,
+  time: number,
+  options: ExportVideoOptions = {},
+  subtitles?: any[]
+): Promise<Blob> => {
+  const response = await api.post(
+    `/videos/${projectId}/preview-frame`,
+    {
+      time,
+      aspectRatio: options.aspectRatio ?? '16:9',
+      fontSize: options.fontSize ?? 64,
+      fontColor: options.fontColor ?? 'FFFFFF',
+      verticalPosition: options.verticalPosition ?? 95,
+      maxBoxWidthPercent: options.maxBoxWidthPercent ?? 92,
+      maxBoxHeightPx: options.maxBoxHeightPx ?? 145,
+      subtitles,
+    },
+    { responseType: 'blob' }
+  );
+  return response.data;
+};
+
 export interface ExportStatus {
   status: 'processing' | 'done' | 'error';
   progress: number;

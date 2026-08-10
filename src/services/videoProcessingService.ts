@@ -192,7 +192,7 @@ export class VideoProcessingService {
       '-i', videoPath,
       '-vf', filters.join(','),
       '-c:v', 'libx264',
-      '-preset', 'fast',
+      '-preset', 'veryfast',
       '-crf', '20',
       '-c:a', 'aac',
       '-b:a', '128k',
@@ -214,6 +214,60 @@ export class VideoProcessingService {
 
     if (!fs.existsSync(outputPath)) {
       throw new Error('FFmpeg није направио излазни фајл.');
+    }
+
+    return outputPath;
+  }
+
+  /**
+   * Рендеруј ЈЕДАН фрејм са упеченим титловима — исти crop/scale/ASS
+   * pipeline као при експорту, па је слика пиксел-идентична експорту.
+   * Враћа путању до PNG фајла (позивалац брише после слања).
+   */
+  async renderPreviewFrame(
+    videoPath: string,
+    subtitles: Subtitle[],
+    options: Partial<ExportOptions> = {},
+    timeSec: number = 0
+  ): Promise<string> {
+    const {
+      aspectRatio = '16:9',
+      fontSize = DEFAULT_FONT_SIZE,
+      fontColor = 'FFFFFF',
+      verticalPosition = DEFAULT_VERTICAL_POSITION,
+      maxBoxWidthPercent = DEFAULT_MAX_BOX_WIDTH_PERCENT,
+    } = options;
+
+    const target = TARGET_DIMS[aspectRatio as AspectRatio] || TARGET_DIMS['16:9'];
+    const outputPath = path.join(config.exportsDir, `preview_${uuidv4()}.png`);
+    const filters: string[] = this.getCropScaleFilters(aspectRatio as AspectRatio);
+
+    const assPath = path.join(config.exportsDir, `${uuidv4()}.ass`);
+    const assContent = generateASS(subtitles, {
+      width: target.width,
+      height: target.height,
+      fontSize,
+      fontColor,
+      verticalPosition,
+      maxBoxWidthPercent,
+    });
+    fs.writeFileSync(assPath, assContent, 'utf-8');
+
+    const escapedAssPath = assPath.replace(/\\/g, '/').replace(/:/g, '\\:');
+    filters.push(`subtitles='${escapedAssPath}'`);
+
+    // -ss пре -i уз -copyts: брзо тражење, а оригинални timestamp се чува
+    // па libass приказује титл који важи баш у том тренутку
+    const command = `"${this.ffmpegPath}" -ss ${Math.max(0, timeSec)} -copyts -i "${videoPath}" -vf "${filters.join(',')}" -frames:v 1 -y "${outputPath}"`;
+
+    try {
+      await execPromise(command, { maxBuffer: 50 * 1024 * 1024 });
+    } finally {
+      if (fs.existsSync(assPath)) fs.unlinkSync(assPath);
+    }
+
+    if (!fs.existsSync(outputPath)) {
+      throw new Error('FFmpeg није направио фрејм за преглед.');
     }
 
     return outputPath;
@@ -272,7 +326,7 @@ export class VideoProcessingService {
     const outputPath = path.join(config.exportsDir, this.buildOutputName(undefined, aspectRatio));
     const filters = this.getCropScaleFilters(aspectRatio);
 
-    const command = `"${this.ffmpegPath}" -i "${videoPath}" -vf "${filters.join(',')}" -c:v libx264 -preset fast -crf 20 -c:a aac -b:a 128k -movflags +faststart -y "${outputPath}"`;
+    const command = `"${this.ffmpegPath}" -i "${videoPath}" -vf "${filters.join(',')}" -c:v libx264 -preset veryfast -crf 20 -c:a aac -b:a 128k -movflags +faststart -y "${outputPath}"`;
 
     await execPromise(command, { maxBuffer: 50 * 1024 * 1024 });
     return outputPath;

@@ -80,4 +80,6 @@ export interface TranscriptionResult {
   segments: TranscriptionSegment[];
   language: string;
   duration: number;
+  /** true = демо титлови (нема API кључа), нису препис снимка */
+  isDemo?: boolean;
 }

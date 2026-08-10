@@ -2,6 +2,9 @@ import { Subtitle } from '../types';
 import {
   DEFAULT_VERTICAL_POSITION,
   DEFAULT_MAX_BOX_WIDTH_PERCENT,
+  LINE_HEIGHT_RATIO,
+  LINE_GAP_RATIO,
+  BOX_PADDING_RATIO,
 } from './subtitleLayout';
 
 /**
@@ -51,15 +54,10 @@ function toAssColor(rgbHex: string, alphaHex: string = '00'): string {
 }
 
 /**
- * Очисти текст за ASS Dialogue ред: без {} тагова, нови ред -> \N
+ * Очисти текст једног реда за ASS Dialogue: без {} тагова
  */
-function escapeAssText(text: string): string {
-  return text
-    .replace(/\{/g, '(')
-    .replace(/\}/g, ')')
-    .replace(/\r\n/g, '\n')
-    .replace(/\r/g, '\n')
-    .replace(/\n/g, '\\N');
+function escapeAssLine(text: string): string {
+  return text.replace(/\{/g, '(').replace(/\}/g, ')');
 }
 
 export function generateASS(subtitles: Subtitle[], options: AssOptions): string {
@@ -85,7 +83,18 @@ export function generateASS(subtitles: Subtitle[], options: AssOptions): string 
   // BorderStyle=3: полупровидна кутија иза сваког реда текста.
   // Код BorderStyle=3 кутија се боји OutlineColour бојом, а Outline
   // одређује унутрашњи размак кутије (padding).
-  const boxPadding = Math.max(2, Math.round(fontSize * 0.1));
+  const boxPadding = Math.max(2, Math.round(fontSize * BOX_PADDING_RATIO));
+
+  // Сваки ред титла иде као засебан Dialogue са \pos — кутије суседних
+  // редова се тако НЕ преклапају, а између њих постоји видљив размак.
+  const linePitch = Math.round(
+    fontSize * LINE_HEIGHT_RATIO + 2 * boxPadding + fontSize * LINE_GAP_RATIO
+  );
+  const centerX = Math.round(width / 2);
+  // \an2 сидри ДОЊУ ивицу текста, а кутија се шири још boxPadding ниже —
+  // померамо навише за padding да доња ивица КУТИЈЕ стоји тачно на
+  // verticalPosition, исто као у прегледу у прегледачу.
+  const baseBottomY = Math.round(height * (clampedVertical / 100)) - boxPadding;
 
   const primaryColour = toAssColor(fontColor, '00');
   const outlineColour = toAssColor('000000', '80'); // ~50% провидна црна кутија
@@ -110,11 +119,22 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
   const events = subtitles
     .filter((s) => s.text && s.text.trim())
-    .map((s) => {
+    .flatMap((s) => {
       const start = toAssTime(s.startTime);
       const end = toAssTime(s.endTime);
-      const text = escapeAssText(s.text.trim());
-      return `Dialogue: 0,${start},${end},Default,,0,0,0,,${text}`;
+      const lines = s.text
+        .trim()
+        .replace(/\r\n?/g, '\n')
+        .split('\n')
+        .map((l) => l.trim())
+        .filter((l) => l.length > 0);
+
+      // Доњи ред стоји на baseBottomY, сваки ред изнад је померен за linePitch
+      return lines.map((line, i) => {
+        const y = baseBottomY - (lines.length - 1 - i) * linePitch;
+        const text = escapeAssLine(line);
+        return `Dialogue: 0,${start},${end},Default,,0,0,0,,{\\an2\\pos(${centerX},${y})}${text}`;
+      });
     })
     .join('\n');
 

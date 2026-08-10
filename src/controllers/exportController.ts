@@ -1,4 +1,5 @@
 import { Request, Response } from 'express';
+import fs from 'fs';
 import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import { VideoProcessingService } from '../services/videoProcessingService';
@@ -153,6 +154,65 @@ export class ExportController {
     job.filename = outputFilename;
     job.savedTo = outputPath;
     job.exportsFolder = config.exportsDir;
+  }
+
+  /**
+   * 📸 Тачан преглед — рендерује један фрејм кроз ИСТИ pipeline као
+   * експорт (crop/scale + libass), па слика показује тачно како ће
+   * извезени видео изгледати у датом тренутку.
+   */
+  async previewFrame(req: Request, res: Response): Promise<void> {
+    try {
+      const { id } = req.params;
+      const {
+        time = 0,
+        aspectRatio = '16:9',
+        fontSize = DEFAULT_FONT_SIZE,
+        fontColor = 'FFFFFF',
+        verticalPosition = DEFAULT_VERTICAL_POSITION,
+        maxBoxWidthPercent = DEFAULT_MAX_BOX_WIDTH_PERCENT,
+        maxBoxHeightPx = DEFAULT_MAX_BOX_HEIGHT,
+        subtitles: bodySubtitles,
+      } = req.body;
+
+      const project = projects.get(id);
+      if (!project) {
+        res.status(404).json({ success: false, error: 'Пројекат није пронађен.' });
+        return;
+      }
+
+      // Несачуване измене из едитора имају предност над сачуваним титловима
+      const sourceSubtitles = Array.isArray(bodySubtitles) && bodySubtitles.length > 0
+        ? bodySubtitles
+        : project.subtitles;
+
+      let optimized = this.subtitleService.optimizeForAspectRatio(
+        sourceSubtitles,
+        aspectRatio as AspectRatio,
+        fontSize,
+        maxBoxWidthPercent,
+        maxBoxHeightPx
+      );
+      optimized = this.subtitleService.convertToCyrillic(optimized);
+
+      const framePath = await this.videoProcessingService.renderPreviewFrame(
+        project.video.path,
+        optimized,
+        { aspectRatio, fontSize, fontColor, verticalPosition, maxBoxWidthPercent },
+        Number(time) || 0
+      );
+
+      res.sendFile(framePath, (err) => {
+        // Обриши привремени PNG после слања
+        fs.unlink(framePath, () => {});
+        if (err && !res.headersSent) {
+          res.status(500).json({ success: false, error: 'Грешка при слању прегледа.' });
+        }
+      });
+    } catch (error: any) {
+      console.error('Preview frame error:', error);
+      res.status(500).json({ success: false, error: error.message });
+    }
   }
 
   /**

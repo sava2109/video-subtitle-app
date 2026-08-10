@@ -12,6 +12,41 @@ import { config } from '../config';
 // In-memory storage (u produkciji koristiti bazu)
 export const projects: Map<string, VideoProject> = new Map();
 
+// Трајно чување пројеката — преживљава рестарт сервера (и ts-node-dev respawn)
+const PROJECTS_FILE = path.join(config.uploadsDir, 'projects.json');
+
+export function saveProjects(): void {
+  try {
+    fs.writeFileSync(
+      PROJECTS_FILE,
+      JSON.stringify(Array.from(projects.values()), null, 2),
+      'utf-8'
+    );
+  } catch (e) {
+    console.error('Не могу да сачувам projects.json:', e);
+  }
+}
+
+function loadProjects(): void {
+  try {
+    if (!fs.existsSync(PROJECTS_FILE)) return;
+    const saved: VideoProject[] = JSON.parse(fs.readFileSync(PROJECTS_FILE, 'utf-8'));
+    for (const p of saved) {
+      // Прескочи пројекте чији видео фајл више не постоји
+      if (p?.video?.path && fs.existsSync(p.video.path)) {
+        projects.set(p.id, p);
+      }
+    }
+    if (projects.size > 0) {
+      console.log(`📂 Учитано ${projects.size} пројеката из projects.json`);
+    }
+  } catch (e) {
+    console.error('Не могу да учитам projects.json:', e);
+  }
+}
+
+loadProjects();
+
 export class VideoController {
   private speechToTextService: SpeechToTextService;
   private videoProcessingService: VideoProcessingService;
@@ -57,6 +92,7 @@ export class VideoController {
       }
 
       projects.set(projectId, project);
+      saveProjects();
 
       res.status(200).json({
         success: true,
@@ -123,6 +159,7 @@ export class VideoController {
       }
 
       projects.delete(id);
+      saveProjects();
       res.json({ success: true, message: 'Пројекат обрисан.' });
     } catch (error: any) {
       res.status(500).json({ success: false, error: error.message });
@@ -176,12 +213,16 @@ export class VideoController {
       project.status = 'transcribed';
       project.updatedAt = new Date();
       projects.set(id, project);
+      saveProjects();
 
       res.json({
         success: true,
         data: {
           subtitles,
-          message: 'Транскрипција завршена!'
+          isDemo: transcription.isDemo === true,
+          message: transcription.isDemo
+            ? 'ДЕМО титлови — нема API кључа, ово није препис вашег снимка.'
+            : 'Транскрипција завршена!'
         }
       });
     } catch (error: any) {

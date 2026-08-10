@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import { wrapText } from '../utils/subtitleLayout';
 
 interface Subtitle {
@@ -13,18 +13,31 @@ interface SubtitleEditorProps {
   currentTime: number;
   onChange: (subtitles: Subtitle[]) => void;
   onInsertAtCurrentTime?: () => void;
+  onSeek?: (time: number) => void;
+  onMergeWithNext?: (id: number) => void;
+  onSplit?: (id: number) => void;
   maxCharsPerLine?: number;
   maxLines?: number;
 }
+
+// Изнад овог броја знакова у секунди титл је тешко прочитати
+const CPS_WARN_THRESHOLD = 17;
+
+const round2 = (n: number) => Math.round(n * 100) / 100;
 
 const SubtitleEditor: React.FC<SubtitleEditorProps> = ({
   subtitles,
   currentTime,
   onChange,
   onInsertAtCurrentTime,
+  onSeek,
+  onMergeWithNext,
+  onSplit,
   maxCharsPerLine = 40,
   maxLines = 2,
 }) => {
+  const activeItemRef = useRef<HTMLDivElement>(null);
+
   const formatTime = (seconds: number): string => {
     const mins = Math.floor(seconds / 60);
     const secs = Math.floor(seconds % 60);
@@ -42,6 +55,17 @@ const SubtitleEditor: React.FC<SubtitleEditorProps> = ({
     return 0;
   };
 
+  const isActive = (subtitle: Subtitle) => {
+    return currentTime >= subtitle.startTime && currentTime <= subtitle.endTime;
+  };
+
+  const activeId = subtitles.find(isActive)?.id ?? null;
+
+  // Аутоматски скролуј листу до титла који се тренутно приказује
+  useEffect(() => {
+    activeItemRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  }, [activeId]);
+
   const handleTextChange = (id: number, newText: string) => {
     const updated = subtitles.map((s) =>
       s.id === id ? { ...s, text: newText } : s
@@ -49,12 +73,28 @@ const SubtitleEditor: React.FC<SubtitleEditorProps> = ({
     onChange(updated);
   };
 
-  const handleTimeChange = (id: number, field: 'startTime' | 'endTime', value: string) => {
-    const time = parseTime(value);
-    const updated = subtitles.map((s) =>
-      s.id === id ? { ...s, [field]: time } : s
-    );
+  const setTime = (id: number, field: 'startTime' | 'endTime', value: number) => {
+    const updated = subtitles.map((s) => {
+      if (s.id !== id) return s;
+      if (field === 'startTime') {
+        return { ...s, startTime: round2(Math.max(0, Math.min(value, s.endTime - 0.1))) };
+      }
+      return { ...s, endTime: round2(Math.max(value, s.startTime + 0.1)) };
+    });
     onChange(updated);
+  };
+
+  const handleTimeChange = (id: number, field: 'startTime' | 'endTime', value: string) => {
+    setTime(id, field, parseTime(value));
+  };
+
+  const nudgeTime = (id: number, field: 'startTime' | 'endTime', delta: number) => {
+    const s = subtitles.find((x) => x.id === id);
+    if (s) setTime(id, field, s[field] + delta);
+  };
+
+  const setToNow = (id: number, field: 'startTime' | 'endTime') => {
+    setTime(id, field, currentTime);
   };
 
   const handleDelete = (id: number) => {
@@ -74,13 +114,48 @@ const SubtitleEditor: React.FC<SubtitleEditorProps> = ({
     onChange([...subtitles, newSubtitle]);
   };
 
-  const isActive = (subtitle: Subtitle) => {
-    return currentTime >= subtitle.startTime && currentTime <= subtitle.endTime;
-  };
-
   const isTooLong = (text: string) => {
     return wrapText(text, maxCharsPerLine).length > maxLines;
   };
+
+  // Знакова у секунди (без размака) — мера читљивости титла
+  const getCps = (s: Subtitle): number => {
+    const duration = Math.max(0.1, s.endTime - s.startTime);
+    return s.text.replace(/\s+/g, '').length / duration;
+  };
+
+  const renderTimeControls = (subtitle: Subtitle, field: 'startTime' | 'endTime', label: string) => (
+    <label style={styles.timeLabel}>
+      {label}
+      <button
+        style={styles.nudgeButton}
+        title="−0.1 секунду"
+        onClick={() => nudgeTime(subtitle.id, field, -0.1)}
+      >
+        −
+      </button>
+      <input
+        type="text"
+        value={formatTime(subtitle[field])}
+        onChange={(e) => handleTimeChange(subtitle.id, field, e.target.value)}
+        style={styles.timeInput}
+      />
+      <button
+        style={styles.nudgeButton}
+        title="+0.1 секунду"
+        onClick={() => nudgeTime(subtitle.id, field, 0.1)}
+      >
+        +
+      </button>
+      <button
+        style={styles.nowButton}
+        title="Постави на тренутно време плејера"
+        onClick={() => setToNow(subtitle.id, field)}
+      >
+        ⏱
+      </button>
+    </label>
+  );
 
   return (
     <div style={styles.container}>
@@ -102,60 +177,95 @@ const SubtitleEditor: React.FC<SubtitleEditorProps> = ({
         {subtitles.length === 0 ? (
           <p style={styles.empty}>Нема титлова. Генеришите их или додајте ручно.</p>
         ) : (
-          subtitles.map((subtitle) => (
-            <div
-              key={subtitle.id}
-              style={{
-                ...styles.item,
-                ...(isActive(subtitle) ? styles.activeItem : {}),
-              }}
-            >
-              <div style={styles.itemHeader}>
-                <span style={styles.itemId}>#{subtitle.id}</span>
-                <button
-                  style={styles.deleteButton}
-                  onClick={() => handleDelete(subtitle.id)}
-                >
-                  ×
-                </button>
-              </div>
-
-              <div style={styles.timeRow}>
-                <label style={styles.timeLabel}>
-                  Почетак:
-                  <input
-                    type="text"
-                    value={formatTime(subtitle.startTime)}
-                    onChange={(e) => handleTimeChange(subtitle.id, 'startTime', e.target.value)}
-                    style={styles.timeInput}
-                  />
-                </label>
-                <label style={styles.timeLabel}>
-                  Крај:
-                  <input
-                    type="text"
-                    value={formatTime(subtitle.endTime)}
-                    onChange={(e) => handleTimeChange(subtitle.id, 'endTime', e.target.value)}
-                    style={styles.timeInput}
-                  />
-                </label>
-              </div>
-
-              <textarea
-                value={subtitle.text}
-                onChange={(e) => handleTextChange(subtitle.id, e.target.value)}
-                style={styles.textInput}
-                rows={2}
-                placeholder="Унесите текст титла..."
-              />
-
-              {isTooLong(subtitle.text) && (
-                <div style={styles.tooLongWarning}>
-                  ⚠️ Не стаје у кутију ({maxLines} {maxLines === 1 ? 'ред' : 'реда'}) — при експорту се дели у више титлова
+          subtitles.map((subtitle, index) => {
+            const cps = getCps(subtitle);
+            return (
+              <div
+                key={subtitle.id}
+                ref={subtitle.id === activeId ? activeItemRef : undefined}
+                style={{
+                  ...styles.item,
+                  ...(isActive(subtitle) ? styles.activeItem : {}),
+                }}
+              >
+                <div style={styles.itemHeader}>
+                  <div style={styles.itemHeaderLeft}>
+                    {onSeek && (
+                      <button
+                        style={styles.seekButton}
+                        title="Премотај видео на овај титл"
+                        onClick={() => onSeek(subtitle.startTime)}
+                      >
+                        ▶
+                      </button>
+                    )}
+                    <span style={styles.itemId}>#{subtitle.id}</span>
+                    {subtitle.text.trim() && (
+                      <span
+                        style={{
+                          ...styles.cpsBadge,
+                          ...(cps > CPS_WARN_THRESHOLD ? styles.cpsWarn : {}),
+                        }}
+                        title={
+                          cps > CPS_WARN_THRESHOLD
+                            ? `Пребрзо за читање (${cps.toFixed(1)} знакова/с, преко ${CPS_WARN_THRESHOLD}) — продужи трајање или скрати текст`
+                            : `Читљивост: ${cps.toFixed(1)} знакова у секунди`
+                        }
+                      >
+                        {cps > CPS_WARN_THRESHOLD ? '⚠️ ' : ''}{cps.toFixed(0)} зн/с
+                      </span>
+                    )}
+                  </div>
+                  <div style={styles.itemHeaderRight}>
+                    {onSplit && subtitle.text.trim() && (
+                      <button
+                        style={styles.toolButton}
+                        title="Подели титл на два"
+                        onClick={() => onSplit(subtitle.id)}
+                      >
+                        ✂️
+                      </button>
+                    )}
+                    {onMergeWithNext && index < subtitles.length - 1 && (
+                      <button
+                        style={styles.toolButton}
+                        title="Спој са следећим титлом"
+                        onClick={() => onMergeWithNext(subtitle.id)}
+                      >
+                        🔗
+                      </button>
+                    )}
+                    <button
+                      style={styles.deleteButton}
+                      title="Обриши титл"
+                      onClick={() => handleDelete(subtitle.id)}
+                    >
+                      ×
+                    </button>
+                  </div>
                 </div>
-              )}
-            </div>
-          ))
+
+                <div style={styles.timeRow}>
+                  {renderTimeControls(subtitle, 'startTime', 'Почетак:')}
+                  {renderTimeControls(subtitle, 'endTime', 'Крај:')}
+                </div>
+
+                <textarea
+                  value={subtitle.text}
+                  onChange={(e) => handleTextChange(subtitle.id, e.target.value)}
+                  style={styles.textInput}
+                  rows={2}
+                  placeholder="Унесите текст титла..."
+                />
+
+                {isTooLong(subtitle.text) && (
+                  <div style={styles.tooLongWarning}>
+                    ⚠️ Не стаје у кутију ({maxLines} {maxLines === 1 ? 'ред' : 'реда'}) — при експорту се дели у више титлова
+                  </div>
+                )}
+              </div>
+            );
+          })
         )}
       </div>
     </div>
@@ -238,10 +348,53 @@ const styles: { [key: string]: React.CSSProperties } = {
     alignItems: 'center',
     marginBottom: '8px',
   },
+  itemHeaderLeft: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+  },
+  itemHeaderRight: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '6px',
+  },
+  seekButton: {
+    width: '28px',
+    height: '28px',
+    backgroundColor: '#e7f1ff',
+    color: '#1971c2',
+    border: '1px solid #a5c9f5',
+    borderRadius: '50%',
+    cursor: 'pointer',
+    fontSize: '0.75rem',
+    lineHeight: '1',
+  },
   itemId: {
     fontSize: '0.8rem',
     color: '#666',
     fontWeight: 'bold',
+  },
+  cpsBadge: {
+    fontSize: '0.72rem',
+    color: '#868e96',
+    backgroundColor: '#f1f3f5',
+    padding: '2px 6px',
+    borderRadius: '10px',
+  },
+  cpsWarn: {
+    color: '#c92a2a',
+    backgroundColor: '#ffe3e3',
+    fontWeight: 'bold',
+  },
+  toolButton: {
+    width: '32px',
+    height: '32px',
+    backgroundColor: '#fff',
+    border: '1px solid #ddd',
+    borderRadius: '6px',
+    cursor: 'pointer',
+    fontSize: '0.85rem',
+    lineHeight: '1',
   },
   deleteButton: {
     width: '32px',
@@ -256,22 +409,46 @@ const styles: { [key: string]: React.CSSProperties } = {
   },
   timeRow: {
     display: 'flex',
-    gap: '15px',
+    gap: '12px',
     marginBottom: '8px',
+    flexWrap: 'wrap',
   },
   timeLabel: {
     display: 'flex',
     alignItems: 'center',
-    gap: '5px',
+    gap: '4px',
     fontSize: '0.85rem',
     color: '#666',
   },
   timeInput: {
-    width: '80px',
-    padding: '4px 8px',
+    width: '70px',
+    padding: '4px 6px',
     border: '1px solid #ddd',
     borderRadius: '4px',
     fontSize: '0.85rem',
+    textAlign: 'center',
+  },
+  nudgeButton: {
+    width: '24px',
+    height: '26px',
+    padding: 0,
+    backgroundColor: '#fff',
+    border: '1px solid #ddd',
+    borderRadius: '4px',
+    cursor: 'pointer',
+    fontSize: '0.9rem',
+    lineHeight: '1',
+    color: '#495057',
+  },
+  nowButton: {
+    height: '26px',
+    padding: '0 6px',
+    backgroundColor: '#e7f1ff',
+    border: '1px solid #a5c9f5',
+    borderRadius: '4px',
+    cursor: 'pointer',
+    fontSize: '0.8rem',
+    lineHeight: '1',
   },
   textInput: {
     width: '100%',
@@ -281,6 +458,7 @@ const styles: { [key: string]: React.CSSProperties } = {
     fontSize: '1rem',
     resize: 'vertical',
     fontFamily: 'inherit',
+    boxSizing: 'border-box',
   },
 };
 
